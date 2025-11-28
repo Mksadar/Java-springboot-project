@@ -9,17 +9,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout the repo
+      # Checkout repo
       - uses: actions/checkout@v4
 
-      # 2️⃣ Set up Java
+      # Setup Java 17
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      # 3️⃣ SonarQube Scan
+      # SonarQube scan
       - name: Sonar Scan
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -29,29 +29,27 @@ jobs:
             -Dsonar.host.url=${{ secrets.SONAR_URL }} \
             -Dsonar.login=${{ secrets.SONAR_TOKEN }}
 
-      # 4️⃣ Quality Gate
+      # Quality Gate
       - name: Quality Gate
         uses: sonarsource/sonarqube-quality-gate-action@v1
         with:
           scanMetadataReportFile: target/site/sonar/report-task.txt
 
-      # 5️⃣ Build the JAR (skip tests to avoid Hibernate DB issue)
+      # Build JAR (skip tests to avoid DB connectivity issues)
       - name: Build JAR
-        run: mvn clean package -Dspring.profiles.active=build -DskipTests
+        run: mvn clean package -DskipTests
 
-      # 6️⃣ Copy JAR and .env to EC2
-      - name: Copy JAR & .env to EC2
+      # Copy JAR to EC2
+      - name: Copy JAR to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ec2-user
           key: ${{ secrets.EC2_KEY }}
-          source: |
-            target/*.jar
-            .env
+          source: "target/*.jar"
           target: "/home/ec2-user/app/"
 
-      # 7️⃣ Run application on EC2
+      # Run on EC2
       - name: Run Application on EC2
         uses: appleboy/ssh-action@v1.1.0
         with:
@@ -60,15 +58,23 @@ jobs:
           key: ${{ secrets.EC2_KEY }}
           script: |
             # Stop any previous instance
-            pkill -f "datastore-0.0.7.jar" || true
+            pkill -f datastore-0.0.7.jar || true
 
-            # Ensure app directory exists
-            mkdir -p /home/ec2-user/app/logs
+            # Go to app directory
+            cd /home/ec2-user/app
+
+            # Ensure log directory exists
+            sudo mkdir -p /var/log/app
+            sudo chown ec2-user:ec2-user /var/log/app
 
             # Load environment variables from .env
-            source /home/ec2-user/app/.env
+            if [ -f .env ]; then
+                export $(cat .env | xargs)
+            fi
 
-            # Run the JAR in background
-            nohup java -jar /home/ec2-user/app/datastore-0.0.7.jar > /home/ec2-user/app/logs/datastore.log 2>&1 &
+            # Run JAR in background
+            nohup java -jar datastore-0.0.7.jar > $LOG_FILE_PATH 2>&1 &
+            echo "✅ Application started. Logs: $LOG_FILE_PATH"
 
-            echo "✅ Application started. Logs: /home/ec2-user/app/logs/datastore.log"
+            # Verify process
+            ps -ef | grep datastore-0.0.7.jar
