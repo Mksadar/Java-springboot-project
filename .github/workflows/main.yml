@@ -1,0 +1,80 @@
+name: Full CI/CD Pipeline for Amazon Linux 2023
+
+on:
+  # push:
+  #   branches: [ "main" ]
+    workflow_dispatch:
+
+jobs:
+  ci-cd:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout code
+      - uses: actions/checkout@v4
+
+      # Step 2: Set up Java
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # Step 3: SonarQube scan
+      - name: Sonar Scan
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          mvn clean verify sonar:sonar \
+            -Dsonar.projectKey=myproject \
+            -Dsonar.host.url=${{ secrets.SONAR_URL }} \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+
+      # Step 4: Quality Gate
+      - name: Quality Gate
+        uses: sonarsource/sonarqube-quality-gate-action@v1
+        with:
+          scanMetadataReportFile: target/site/sonar/report-task.txt
+
+      # Step 5: Build JAR
+      - name: Build
+        run: mvn clean package -Dspring.profiles.active=build
+
+      # Step 6: Copy JAR and .env to EC2
+      - name: Copy JAR and .env to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user          # Amazon Linux default user
+          key: ${{ secrets.EC2_KEY }}
+          source: |
+            target/*.jar
+            .env
+          target: "/home/ec2-user/"
+
+      # Step 7: Run application on EC2
+      - name: Run Spring Boot app on Amazon Linux
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user          # Amazon Linux default user
+          key: ${{ secrets.EC2_KEY }}
+          script: |
+            cd /home/ec2-user
+            # Stop any existing instance
+            pkill -f "*.jar" || true
+            # Ensure logs directory exists
+            mkdir -p logs
+            # Load environment variables from .env
+            if [ -f .env ]; then
+              export $(grep -v '^#' .env | xargs)
+            fi
+            # Run the app in background
+            nohup java -jar *.jar > logs/datastore.log 2>&1 &
+            echo "✅ Application started. Logs: /home/ec2-user/logs/datastore.log"
+            # Optional: check if port 8084 is listening
+            if ss -tuln | grep -q 8084; then
+              echo "✅ App is running on port 8084"
+            else
+              echo "❌ App did not start on port 8084"
+            fi
