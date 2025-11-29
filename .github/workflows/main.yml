@@ -26,10 +26,12 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           mvn clean verify sonar:sonar \
-            -DskipTests \
-            -Dsonar.projectKey=myproject \
-            -Dsonar.host.url=${{ secrets.SONAR_URL }} \
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+          -DskipTests \
+          -Dsonar.projectKey=myproject \
+          -Dsonar.host.url=${{ secrets.SONAR_URL }} \
+          -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+          -Dsonar.scanner.metadataFile=target/site/sonar/report-task.txt
+
 
       # qulity gate
       - name: Quality Gate
