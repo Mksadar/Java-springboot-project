@@ -118,5 +118,6 @@ pipeline {
 def staticCodeAnalysis(credentialsId) {
   withSonarQubeEnv(credentialsId: credentialsId) {
     sh 'mvn sonar:sonar'
+//give same name
   }
 }
